@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { db } from '@/FirebaseConfig';
-import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, where, Timestamp } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -19,7 +19,7 @@ export default function ClientTransactionsScreen() {
 
   useEffect(() => {
     const fetchTransactions = async () => {
-      const c = await AsyncStorage.getItem('client');
+      const c = await AsyncStorage.getItem('currentClient'); // ✅ clé correcte
       if (!c) {
         console.warn('⚠️ Aucun client trouvé dans AsyncStorage');
         setLoading(false);
@@ -42,6 +42,10 @@ export default function ClientTransactionsScreen() {
             console.log('🟢 Snapshot reçu, docs :', snap.docs.length);
             const list: any[] = snap.docs.map((doc) => {
               const data = doc.data();
+              // ⚠️ Conversion Firestore Timestamp en JS Date si nécessaire
+              if (data.transactionTime && data.transactionTime instanceof Timestamp) {
+                data.transactionTime = data.transactionTime.toDate();
+              }
               console.log('   → Transaction :', data);
               return { id: doc.id, ...data };
             });
@@ -54,7 +58,7 @@ export default function ClientTransactionsScreen() {
           }
         );
 
-        return unsubscribe;
+        return unsubscribe; // 🔄 pour cleanup
       } catch (err) {
         console.error('❌ Erreur dans fetchTransactions :', err);
         setLoading(false);
@@ -69,22 +73,24 @@ export default function ClientTransactionsScreen() {
     let list = [...transactions];
     const now = new Date();
 
+    // Filtre par statut
     if (filterStatus !== 'all') {
       list = list.filter((t) => t.status === filterStatus);
     }
 
+    // Filtre par période
     if (filterPeriod === 'today') {
       list = list.filter(
         (t) =>
           t.transactionTime &&
-          format(t.transactionTime.toDate(), 'dd/MM/yyyy') === format(now, 'dd/MM/yyyy')
+          format(t.transactionTime, 'dd/MM/yyyy') === format(now, 'dd/MM/yyyy')
       );
     } else if (filterPeriod === 'month') {
       list = list.filter(
         (t) =>
           t.transactionTime &&
-          t.transactionTime.toDate().getMonth() === now.getMonth() &&
-          t.transactionTime.toDate().getFullYear() === now.getFullYear()
+          t.transactionTime.getMonth() === now.getMonth() &&
+          t.transactionTime.getFullYear() === now.getFullYear()
       );
     }
 
@@ -106,6 +112,7 @@ export default function ClientTransactionsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', padding: 15 }}>
+      {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={{ color: '#008CBA', fontSize: 16 }}>← Retour</Text>
@@ -147,7 +154,7 @@ export default function ClientTransactionsScreen() {
         ))}
       </View>
 
-      {/* Liste */}
+      {/* Liste des transactions */}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -175,12 +182,14 @@ export default function ClientTransactionsScreen() {
             <Text>
               Date :{' '}
               {item.transactionTime
-                ? format(item.transactionTime.toDate(), 'dd/MM/yyyy - HH:mm', { locale: fr })
+                ? format(item.transactionTime, 'dd/MM/yyyy - HH:mm', { locale: fr })
                 : '...'}
             </Text>
           </View>
         )}
-        ListEmptyComponent={() => <Text style={{ textAlign: 'center', marginTop: 20 }}>Aucune transaction</Text>}
+        ListEmptyComponent={() => (
+          <Text style={{ textAlign: 'center', marginTop: 20 }}>Aucune transaction</Text>
+        )}
       />
     </SafeAreaView>
   );
