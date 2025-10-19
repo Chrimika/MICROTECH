@@ -39,39 +39,44 @@ export default function Login() {
 
     setLoading(true);
     try {
-      // Auth avec Firebase Auth
+      // ✅ Authentification avec Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password.trim());
       const uid = userCredential.user.uid;
 
-      // Récupérer le document Commercial par email
-      const q = query(collection(db, 'Commercial'), where('email', '==', email.trim()));
+      // ✅ Recherche du client correspondant dans Firestore
+      const q = query(collection(db, 'Clients'), where('email', '==', email.trim()));
       const snap = await getDocs(q);
 
       if (!snap.empty) {
         const docSnap = snap.docs[0];
-        const docData = docSnap.data();
+        const data = docSnap.data();
 
-        // Récupérer idCommercial depuis le champ du document
-        const idCommercialField = docData.idCommercial ?? null;
-        if (!idCommercialField) {
-          console.warn('Champ idCommercial manquant dans le document Commercial', docSnap.id);
-          await AsyncStorage.setItem(
-            'currentCommercial',
-            JSON.stringify({ idCommercial: null, uid, ...docData })
-          );
-          Alert.alert('Attention', "Le document commercial n'a pas de champ `idCommercial`.");
-        } else {
-          console.log('Commercial connecté :', idCommercialField);
-          await AsyncStorage.setItem(
-            'currentCommercial',
-            JSON.stringify({ idCommercial: idCommercialField, uid, ...docData })
-          );
-
-          // ✅ Navigation vers l'app principale
-          router.replace('(tabs)');
+        // Vérification du champ UID (cohérence)
+        if (data.uid !== uid) {
+          console.warn('UID dans Firestore différent de celui de Firebase Auth');
         }
+
+        // ✅ Stockage complet du client connecté dans AsyncStorage
+        const clientData = {
+          idClient: data.idClient,
+          fullName: data.fullName,
+          email: data.email,
+          phone: data.phone,
+          balance: data.balance,
+          location: data.location,
+          idCommerciale: data.idCommerciale,
+          uid: data.uid,
+          createdAt: data.createdAt,
+        };
+
+        await AsyncStorage.setItem('currentClient', JSON.stringify(clientData));
+
+        console.log('Client connecté :', clientData.fullName);
+
+        // ✅ Navigation vers la page principale
+        router.replace('(tabs)');
       } else {
-        Alert.alert('Erreur', 'Commercial non trouvé dans Firestore');
+        Alert.alert('Erreur', 'Client non trouvé dans la base de données');
       }
     } catch (e) {
       console.error(e);
@@ -81,7 +86,7 @@ export default function Login() {
       } else if (code === 'auth/user-not-found') {
         Alert.alert('Erreur', 'Utilisateur introuvable');
       } else {
-        Alert.alert('Erreur', 'Impossible de se connecter');
+        Alert.alert('Erreur', "Impossible de se connecter, veuillez réessayer.");
       }
     } finally {
       setLoading(false);
@@ -138,7 +143,7 @@ export default function Login() {
           color: textColor,
         }}
       >
-        Login Commercial
+        Connexion Client
       </Text>
 
       <Text style={{ color: textColor }}>Email :</Text>
@@ -194,7 +199,9 @@ export default function Login() {
           borderRadius: 8,
         }}
       >
-        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>Se connecter</Text>
+        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>
+          Se connecter
+        </Text>
       </TouchableOpacity>
     </ImageBackground>
   );

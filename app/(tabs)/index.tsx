@@ -1,344 +1,226 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  FlatList,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
 import { db } from '@/FirebaseConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  collection,
   addDoc,
+  collection,
+  doc,
   getDocs,
   query,
-  where,
-  updateDoc,
-  doc,
   Timestamp,
+  updateDoc,
+  where,
 } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
 import LottieView from 'lottie-react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useColorScheme,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function HomeScreen() {
-  const colorScheme = useColorScheme();
-  const router = useRouter();
-
-  const [search, setSearch] = useState('');
-  const [clients, setClients] = useState<any[]>([]);
-  const [selectedClient, setSelectedClient] = useState<any>(null);
+  const [client, setClient] = useState<any>(null);
   const [amount, setAmount] = useState('');
   const [means, setMeans] = useState<'cash' | 'om' | 'momo'>('cash');
   const [loading, setLoading] = useState(false);
-  const [idCommercial, setIdCommercial] = useState('');
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+  const textColor = isDarkMode ? '#fff' : '#000';
+  const backgroundColor = isDarkMode ? '#121212' : '#fff';
+  const inputBg = isDarkMode ? '#1e1e1e' : '#f2f2f2';
+  const borderColor = isDarkMode ? '#333' : '#ccc';
 
-  // 🎨 Couleurs selon le thème
-  const isDark = colorScheme === 'dark';
-  const backgroundColor = isDark ? '#121212' : '#fff';
-  const textColor = isDark ? '#fff' : '#000';
-  const borderColor = isDark ? '#444' : '#ccc';
-  const inputBackground = isDark ? '#1e1e1e' : '#fff';
-  const placeholderColor = isDark ? '#aaa' : '#666';
-  const cardBg = isDark ? '#1c1c1c' : '#f2f2f2';
-
-  // 🔍 Récupération du commercial connecté ou redirection
-  const fetchCurrentCommercial = async () => {
-    try {
-      const json = await AsyncStorage.getItem('currentCommercial');
-      const commercial = json ? JSON.parse(json) : null;
-
-      if (commercial) {
-        setIdCommercial(commercial.idCommercial);
-      } else {
-        router.replace('/Login');
-      }
-    } catch (error) {
-      console.error('Erreur récupération commercial :', error);
-      router.replace('/Login');
-    }
-  };
-
+  // 🔹 Charger le client connecté
   useEffect(() => {
-    fetchCurrentCommercial();
+    const loadClient = async () => {
+      const json = await AsyncStorage.getItem('currentClient');
+      if (json) setClient(JSON.parse(json));
+    };
+    loadClient();
   }, []);
 
-  // 🔍 Rechercher les clients associés à ce commercial
-  useEffect(() => {
-    if (search.trim().length > 0 && idCommercial) {
-      const fetchClients = async () => {
-        try {
-          const q = query(
-            collection(db, 'Clients'),
-            where('idCommerciale', '==', idCommercial)
-          );
-          const querySnapshot = await getDocs(q);
-          const results = querySnapshot.docs
-            .map((d) => d.data())
-            .filter((c: any) =>
-              c.fullName.toLowerCase().includes(search.toLowerCase())
-            );
-          setClients(results);
-        } catch (error) {
-          console.error('Erreur recherche client :', error);
-        }
-      };
-      fetchClients();
-    } else {
-      setClients([]);
-    }
-  }, [search, idCommercial]);
-
-  // 💸 Fonction d’enregistrement du dépôt
-  const handleDeposit = async () => {
-    if (!selectedClient) {
-      Alert.alert('Erreur', 'Veuillez sélectionner un client.');
-      return;
-    }
+  const handleWithdraw = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      Alert.alert('Erreur', 'Veuillez entrer un montant valide.');
-      return;
+      return Alert.alert('Erreur', 'Veuillez entrer un montant valide.');
+    }
+    if (Number(amount) > client.balance) {
+      return Alert.alert('Erreur', 'Solde insuffisant pour ce retrait.');
     }
 
     setLoading(true);
     try {
-      const clientRef = query(
-        collection(db, 'Clients'),
-        where('idClient', '==', selectedClient.idClient)
-      );
-      const querySnapshot = await getDocs(clientRef);
-      if (!querySnapshot.empty) {
-        const clientDoc = querySnapshot.docs[0];
-        const currentBalance = clientDoc.data().balance || 0;
-        const newBalance = currentBalance + Number(amount);
+      const newBalance = client.balance - Number(amount);
 
-        await addDoc(collection(db, 'Transactions'), {
-          idClient: selectedClient.idClient,
-          idCommercial: idCommercial,
-          means: means,
-          amount: Number(amount),
-          status: 'success',
-          transactionTime: Timestamp.now(),
-          type: 'deposite',
-        });
+      // ✅ Créer la transaction dans Firestore
+      await addDoc(collection(db, 'Transactions'), {
+        idClient: client.idClient,
+        idCommercial: client.idCommerciale,
+        means,
+        amount: Number(amount),
+        status: 'pending', // 👈 en attente de validation
+        transactionTime: Timestamp.now(),
+        type: 'withdraw',
+      });
 
-        await updateDoc(doc(db, 'Clients', clientDoc.id), {
-          balance: newBalance,
-        });
-
-        Alert.alert(
-          'Succès',
-          `Dépôt de ${amount} XAF ajouté pour ${selectedClient.fullName}.`
-        );
-
-        setAmount('');
-        setSelectedClient(null);
-        setSearch('');
-        setClients([]);
+      // ✅ Mettre à jour le solde du client dans Firestore
+      const q = query(collection(db, 'Clients'), where('idClient', '==', client.idClient));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docRef = doc(db, 'Clients', snap.docs[0].id);
+        await updateDoc(docRef, { balance: newBalance });
       }
-    } catch (error) {
-      console.error('Erreur dépôt :', error);
-      Alert.alert('Erreur', "Impossible d'effectuer le dépôt.");
+
+      // ✅ Mettre à jour en local aussi
+      const updatedClient = { ...client, balance: newBalance };
+      await AsyncStorage.setItem('currentClient', JSON.stringify(updatedClient));
+      setClient(updatedClient);
+      setAmount('');
+
+      Alert.alert('Demande envoyée', 'Votre demande de retrait est en attente de validation.');
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Erreur', "Une erreur s'est produite, veuillez réessayer.");
     } finally {
       setLoading(false);
     }
   };
+
+  if (!client)
+    return (
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color="#008a5c" />
+        <Text style={{ color: textColor, marginTop: 10 }}>Chargement du compte...</Text>
+      </SafeAreaView>
+    );
 
   return (
     <SafeAreaView
       style={{
         flex: 1,
         backgroundColor,
-        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingTop: 30,
       }}
     >
-      <View
+      {/* Header */}
+      <Text
         style={{
-          flex: 1,
-          width: '100%',
-          paddingHorizontal: 20,
-          paddingTop: 10,
+          fontSize: 24,
+          fontWeight: 'bold',
+          color: textColor,
+          textAlign: 'center',
         }}
       >
-        {/* Header */}
-        <View
+        Bonjour, {client.fullName.split(' ')[0]} 👋
+      </Text>
+
+      {/* Solde */}
+      <View
+        style={{
+          marginTop: 40,
+          backgroundColor: isDarkMode ? '#1e1e1e' : '#e6fff4',
+          borderRadius: 12,
+          padding: 20,
+          alignItems: 'center',
+        }}
+      >
+        <Text style={{ color: '#008a5c', fontSize: 16 }}>Solde disponible</Text>
+        <Text
           style={{
-            height: 60,
-            justifyContent: 'center',
-            marginBottom: 10,
+            color: textColor,
+            fontSize: 36,
+            fontWeight: 'bold',
+            marginTop: 10,
           }}
         >
-          <Text
+          {client.balance.toLocaleString()} XAF
+        </Text>
+      </View>
+
+      {/* Saisie du montant */}
+      <Text style={{ marginTop: 40, color: textColor, fontSize: 16 }}>Montant du retrait</Text>
+      <TextInput
+        placeholder="Ex: 5000"
+        keyboardType="numeric"
+        value={amount}
+        onChangeText={setAmount}
+        style={{
+          borderWidth: 1,
+          borderColor,
+          borderRadius: 8,
+          padding: 10,
+          marginTop: 10,
+          backgroundColor: inputBg,
+          color: textColor,
+        }}
+        placeholderTextColor={isDarkMode ? '#999' : '#666'}
+      />
+
+      {/* Choix du moyen */}
+      <Text style={{ marginTop: 20, color: textColor, fontSize: 16 }}>Moyen de retrait</Text>
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginTop: 10,
+        }}
+      >
+        {['cash', 'om', 'momo'].map((m) => (
+          <TouchableOpacity
+            key={m}
+            onPress={() => setMeans(m as any)}
             style={{
-              fontSize: 24,
-              fontWeight: 'bold',
-              color: Colors[colorScheme ?? 'light'].tint,
+              width: '30%',
+              padding: 10,
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: means === m ? '#008a5c' : borderColor,
+              backgroundColor: means === m ? '#008a5c' : 'transparent',
+              
             }}
           >
-            MICROTECH
-          </Text>
-        </View>
-
-        {/* Recherche client */}
-        <TextInput
-          placeholder="Rechercher un client..."
-          placeholderTextColor={placeholderColor}
-          value={search}
-          onChangeText={setSearch}
-          style={{
-            borderWidth: 1,
-            borderColor,
-            backgroundColor: inputBackground,
-            color: textColor,
-            padding: 10,
-            marginBottom: 10,
-            borderRadius: 8,
-          }}
-        />
-
-        {/* Liste clients */}
-        {clients.length > 0 && (
-          <FlatList
-            data={clients}
-            keyExtractor={(item) => item.idClient}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => setSelectedClient(item)}
-                style={{
-                  padding: 10,
-                  backgroundColor:
-                    selectedClient?.idClient === item.idClient
-                      ? Colors[colorScheme ?? 'light'].tint
-                      : cardBg,
-                  borderRadius: 8,
-                  marginBottom: 5,
-                }}
-              >
-                <Text
-                  style={{
-                    color:
-                      selectedClient?.idClient === item.idClient
-                        ? '#fff'
-                        : textColor,
-                  }}
-                >
-                  {item.fullName}
-                </Text>
-                <Text
-                  style={{
-                    color:
-                      selectedClient?.idClient === item.idClient
-                        ? '#eee'
-                        : placeholderColor,
-                    fontSize: 12,
-                  }}
-                >
-                  Solde : {item.balance} XAF
-                </Text>
-              </TouchableOpacity>
-            )}
-            style={{ maxHeight: 200, marginBottom: 10 }}
-          />
-        )}
-
-        {/* Saisie du montant */}
-        <TextInput
-          placeholder="Montant du dépôt"
-          placeholderTextColor={placeholderColor}
-          keyboardType="numeric"
-          value={amount}
-          onChangeText={setAmount}
-          style={{
-            borderWidth: 1,
-            borderColor,
-            backgroundColor: inputBackground,
-            color: textColor,
-            padding: 10,
-            marginBottom: 10,
-            borderRadius: 8,
-          }}
-        />
-
-        {/* Moyens de paiement */}
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            marginBottom: 20,
-          }}
-        >
-          {['cash', 'om', 'momo'].map((m) => (
-            <Pressable
-              key={m}
-              onPress={() => setMeans(m as any)}
-              style={{
-                padding: 10,
-                width: '32%',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor:
-                  means === m
-                    ? Colors[colorScheme ?? 'light'].tint
-                    : borderColor,
-                backgroundColor:
-                  means === m
-                    ? Colors[colorScheme ?? 'light'].tint
-                    : 'transparent',
-                
-              }}
-            >
-              <Text
-                style={{
-                  color: means === m ? '#fff' : textColor,
-                  textTransform: 'capitalize',
-                }}
-              >
-                {m}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Bouton */}
-        <Pressable
-          onPress={handleDeposit}
-          disabled={loading}
-          style={{
-            backgroundColor: Colors[colorScheme ?? 'light'].tint,
-            padding: 15,
-            borderRadius: 10,
-            alignItems: 'center',
-            marginTop: 'auto',
-          }}
-        >
-          {loading ? (
-            <LottieView
-              source={require('../../assets/animations/inProgress.json')}
-              autoPlay
-              loop
-              style={{
-                width: 60,
-                height: 60,
-              }}
-            />
-          ) : (
-            <Text
-              style={{
-                color: '#fff',
-                fontSize: 18,
-                fontWeight: 'bold',
-              }}
-            >
-              Nouveau Dépôt
+            <Text style={{ color: means === m ? '#fff' : textColor, textTransform: 'capitalize' }}>
+              {m}
             </Text>
-          )}
-        </Pressable>
+          </TouchableOpacity>
+        ))}
       </View>
+
+      {/* Bouton retrait */}
+      <TouchableOpacity
+        onPress={handleWithdraw}
+        disabled={loading}
+        style={{
+          backgroundColor: '#008a5c',
+          padding: 15,
+          
+          alignItems: 'center',
+          marginTop: 'auto'
+        }}
+      >
+        {loading ? (
+          <LottieView
+            source={require('../../assets/animations/inProgress.json')}
+            autoPlay
+            loop
+            style={{ width: 50, height: 50 }}
+          />
+        ) : (
+          <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>Demander un retrait</Text>
+        )}
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
