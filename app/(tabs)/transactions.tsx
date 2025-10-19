@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  Modal,
 } from 'react-native';
 import { db } from '@/FirebaseConfig';
 import {
@@ -18,6 +19,7 @@ import {
   updateDoc,
   doc,
   orderBy,
+  increment,
 } from 'firebase/firestore';
 import { format, isToday, isThisWeek, isThisMonth } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -36,6 +38,14 @@ export default function TabFourScreen() {
   const [search, setSearch] = useState('');
   const [sortAsc, setSortAsc] = useState(false);
   const [filterPeriod, setFilterPeriod] = useState<'all' | 'today' | 'week' | 'month'>('all');
+
+  const [rejectionModal, setRejectionModal] = useState<{
+    visible: boolean;
+    transactionId: string | null;
+    amount: number;
+    clientId: string;
+  }>({ visible: false, transactionId: null, amount: 0, clientId: '' });
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const backgroundColor = colorScheme === 'dark' ? '#000' : '#f2f2f2';
   const textColor = colorScheme === 'dark' ? '#fff' : '#000';
@@ -63,7 +73,7 @@ export default function TabFourScreen() {
     fetchCommercial();
   }, []);
 
-  // 🔁 Ecoute temps réel — démarre seulement quand idCommercial est dispo
+  // 🔁 Écoute temps réel
   useEffect(() => {
     if (!idCommercial) return;
 
@@ -75,18 +85,12 @@ export default function TabFourScreen() {
       orderBy('transactionTime', 'desc')
     );
 
-    const cQuery = query(
-      collection(db, 'Clients'),
-      where('idCommerciale', '==', idCommercial)
-    );
+    const cQuery = query(collection(db, 'Clients'), where('idCommerciale', '==', idCommercial));
 
     const unsubTransactions = onSnapshot(
       tQuery,
       (snapshot) => {
-        const data = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
+        const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         console.log(`📦 ${data.length} transactions chargées`);
         setTransactions(data);
         setLoading(false);
@@ -105,9 +109,7 @@ export default function TabFourScreen() {
         console.log(`👥 ${data.length} clients chargés`);
         setClients(data);
       },
-      (error) => {
-        console.error('❌ Erreur realtime clients :', error);
-      }
+      (error) => console.error('❌ Erreur realtime clients :', error)
     );
 
     return () => {
@@ -132,9 +134,7 @@ export default function TabFourScreen() {
       return true;
     });
 
-    const searched = filtered.filter((t) =>
-      t.clientName.toLowerCase().includes(search.toLowerCase())
-    );
+    const searched = filtered.filter((t) => t.clientName.toLowerCase().includes(search.toLowerCase()));
 
     return searched.sort((a, b) => {
       const aDate = a.transactionTime?.toDate?.() || new Date();
@@ -143,12 +143,26 @@ export default function TabFourScreen() {
     });
   }, [transactions, clients, search, sortAsc, filterPeriod]);
 
-  // ✅ Valider / rejeter
-  const handleStatusUpdate = async (transactionId: string, status: 'success' | 'failure') => {
+  // ✅ Valider
+  const handleStatusUpdate = async (transactionId: string, status: 'success' | 'failure', reason?: string) => {
     try {
       const tDoc = doc(db, 'Transactions', transactionId);
-      await updateDoc(tDoc, { status });
-      Alert.alert('Succès', `Transaction ${status === 'success' ? 'validée' : 'rejetée'}.`);
+
+      if (status === 'failure' && reason) {
+        // Remboursement client
+        const transaction = transactions.find((t) => t.id === transactionId);
+        if (transaction) {
+          const cDoc = doc(db, 'Clients', transaction.clientId);
+          await updateDoc(cDoc, { balance: increment(transaction.amount) });
+        }
+        await updateDoc(tDoc, { status: 'rejected', rejectionReason: reason });
+      } else {
+        await updateDoc(tDoc, { status: 'success' });
+      }
+
+      Alert.alert('Succès', status === 'success' ? 'Transaction validée.' : 'Transaction rejetée.');
+      setRejectionModal({ visible: false, transactionId: null, amount: 0, clientId: '' });
+      setRejectionReason('');
     } catch (error) {
       console.error('Erreur update transaction :', error);
       Alert.alert('Erreur', 'Impossible de mettre à jour le statut.');
@@ -158,7 +172,17 @@ export default function TabFourScreen() {
   if (loading)
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor }}>
-        <View style={{ backgroundColor: cardColor, paddingVertical: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', shadowColor: "#000", width: 150 }}>
+        <View
+          style={{
+            backgroundColor: cardColor,
+            paddingVertical: 20,
+            borderRadius: 10,
+            justifyContent: 'center',
+            alignItems: 'center',
+            shadowColor: '#000',
+            width: 150,
+          }}
+        >
           <LottieView
             source={require('../../assets/animations/inProgress.json')}
             autoPlay
@@ -231,7 +255,6 @@ export default function TabFourScreen() {
             style={{
               padding: 8,
               backgroundColor: filterPeriod === f.key ? Colors[colorScheme ?? 'light'].tint : filterBg,
-            
             }}
           >
             <Text style={{ color: filterPeriod === f.key ? '#fff' : textColor }}>{f.label}</Text>
@@ -252,8 +275,6 @@ export default function TabFourScreen() {
                 backgroundColor: cardColor,
                 padding: 12,
                 marginBottom: 10,
-                
-                
                 borderColor,
               }}
             >
@@ -261,9 +282,7 @@ export default function TabFourScreen() {
               <Text style={{ fontSize: 13, color: secondaryText }}>
                 {item.type === 'deposite' ? '💰 Dépôt' : '🏧 Retrait'} — {item.means}
               </Text>
-              <Text style={{ fontSize: 13, color: secondaryText }}>
-                Montant : {item.amount} XAF
-              </Text>
+              <Text style={{ fontSize: 13, color: secondaryText }}>Montant : {item.amount} XAF</Text>
               <Text style={{ fontSize: 13, color: secondaryText }}>
                 {format(date, 'dd MMM yyyy - HH:mm', { locale: fr })}
               </Text>
@@ -273,7 +292,7 @@ export default function TabFourScreen() {
                   color:
                     item.status === 'success'
                       ? 'green'
-                      : item.status === 'failure'
+                      : item.status === 'rejected'
                       ? 'red'
                       : 'orange',
                   fontWeight: 'bold',
@@ -283,31 +302,19 @@ export default function TabFourScreen() {
               </Text>
 
               {isPending && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'flex-end',
-                    gap: 10,
-                    marginTop: 8,
-                  }}
-                >
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
                   <TouchableOpacity
                     onPress={() => handleStatusUpdate(item.id, 'success')}
-                    style={{
-                      backgroundColor: 'green',
-                      padding: 8,
-                      borderRadius: 8,
-                    }}
+                    style={{ backgroundColor: 'green', padding: 8, borderRadius: 8 }}
                   >
                     <Text style={{ color: '#fff' }}>Valider</Text>
                   </TouchableOpacity>
+
                   <TouchableOpacity
-                    onPress={() => handleStatusUpdate(item.id, 'failure')}
-                    style={{
-                      backgroundColor: 'red',
-                      padding: 8,
-                      borderRadius: 8,
-                    }}
+                    onPress={() =>
+                      setRejectionModal({ visible: true, transactionId: item.id, amount: item.amount, clientId: item.idClient })
+                    }
+                    style={{ backgroundColor: 'red', padding: 8, borderRadius: 8 }}
                   >
                     <Text style={{ color: '#fff' }}>Rejeter</Text>
                   </TouchableOpacity>
@@ -317,6 +324,57 @@ export default function TabFourScreen() {
           );
         }}
       />
+
+      {/* Modal de rejet */}
+      <Modal visible={rejectionModal.visible} transparent animationType="fade">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 20,
+          }}
+        >
+          <View style={{ backgroundColor: cardColor, padding: 20, borderRadius: 10, width: '100%' }}>
+            <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 10 }}>Raison du rejet :</Text>
+            <TextInput
+              placeholder="Entrez la raison..."
+              placeholderTextColor={secondaryText}
+              value={rejectionReason}
+              onChangeText={setRejectionReason}
+              style={{
+                borderWidth: 1,
+                borderColor,
+                borderRadius: 6,
+                padding: 8,
+                marginBottom: 20,
+                color: textColor,
+              }}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <TouchableOpacity
+                onPress={() => setRejectionModal({ visible: false, transactionId: null, amount: 0, clientId: '' })}
+                style={{ backgroundColor: '#888', padding: 10, borderRadius: 8 }}
+              >
+                <Text style={{ color: '#fff' }}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!rejectionReason.trim()) {
+                    Alert.alert('Erreur', 'Veuillez entrer une raison.');
+                    return;
+                  }
+                  handleStatusUpdate(rejectionModal.transactionId!, 'failure', rejectionReason.trim());
+                }}
+                style={{ backgroundColor: 'red', padding: 10, borderRadius: 8 }}
+              >
+                <Text style={{ color: '#fff' }}>Rejeter</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
