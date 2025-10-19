@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { db } from '@/FirebaseConfig';
 import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,41 +13,66 @@ export default function ClientTransactionsScreen() {
   const [filtered, setFiltered] = useState<any[]>([]);
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'success' | 'rejected'>('all');
   const [filterPeriod, setFilterPeriod] = useState<'all' | 'today' | 'month'>('all');
+  const [loading, setLoading] = useState(true);
+
   const router = useRouter();
 
   useEffect(() => {
     const fetchTransactions = async () => {
       const c = await AsyncStorage.getItem('client');
-      if (!c) return;
+      if (!c) {
+        console.warn('⚠️ Aucun client trouvé dans AsyncStorage');
+        setLoading(false);
+        return;
+      }
 
       const client = JSON.parse(c);
-      const q = query(
-        collection(db, 'Transactions'),
-        where('idClient', '==', client.idClient),
-        orderBy('transactionTime', 'desc')
-      );
+      console.log('🟢 Client récupéré depuis AsyncStorage :', client);
 
-      onSnapshot(q, (snap) => {
-        const list: any[] = [];
-        snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-        setTransactions(list);
-        setFiltered(list);
-      });
+      try {
+        const q = query(
+          collection(db, 'Transactions'),
+          where('idClient', '==', client.idClient),
+          orderBy('transactionTime', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(
+          q,
+          (snap) => {
+            console.log('🟢 Snapshot reçu, docs :', snap.docs.length);
+            const list: any[] = snap.docs.map((doc) => {
+              const data = doc.data();
+              console.log('   → Transaction :', data);
+              return { id: doc.id, ...data };
+            });
+            setTransactions(list);
+            setLoading(false);
+          },
+          (err) => {
+            console.error('❌ Erreur realtime transactions :', err);
+            setLoading(false);
+          }
+        );
+
+        return unsubscribe;
+      } catch (err) {
+        console.error('❌ Erreur dans fetchTransactions :', err);
+        setLoading(false);
+      }
     };
 
     fetchTransactions();
   }, []);
 
   const applyFilters = () => {
+    console.log('🔄 Application des filtres', { filterStatus, filterPeriod });
     let list = [...transactions];
     const now = new Date();
 
-    // Filtre par statut
     if (filterStatus !== 'all') {
       list = list.filter((t) => t.status === filterStatus);
     }
 
-    // Filtre par période
     if (filterPeriod === 'today') {
       list = list.filter(
         (t) =>
@@ -63,12 +88,21 @@ export default function ClientTransactionsScreen() {
       );
     }
 
+    console.log('🔹 Transactions filtrées :', list.length);
     setFiltered(list);
   };
 
   useEffect(() => {
     applyFilters();
   }, [filterStatus, filterPeriod, transactions]);
+
+  if (loading)
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#008CBA" />
+        <Text>Chargement des transactions...</Text>
+      </View>
+    );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', padding: 15 }}>
@@ -81,7 +115,7 @@ export default function ClientTransactionsScreen() {
         </Text>
       </View>
 
-      {/* Filtres */}
+      {/* Filtres statut */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
         {['all', 'pending', 'success', 'rejected'].map((status) => (
           <TouchableOpacity key={status} onPress={() => setFilterStatus(status as any)}>
@@ -98,6 +132,7 @@ export default function ClientTransactionsScreen() {
         ))}
       </View>
 
+      {/* Filtres période */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
         {['all', 'today', 'month'].map((period) => (
           <TouchableOpacity key={period} onPress={() => setFilterPeriod(period as any)}>
@@ -145,6 +180,7 @@ export default function ClientTransactionsScreen() {
             </Text>
           </View>
         )}
+        ListEmptyComponent={() => <Text style={{ textAlign: 'center', marginTop: 20 }}>Aucune transaction</Text>}
       />
     </SafeAreaView>
   );
