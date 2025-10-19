@@ -1,201 +1,222 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
+  View,
   Text,
   TextInput,
   TouchableOpacity,
+  FlatList,
+  ActivityIndicator,
   Alert,
-  ImageBackground,
-  View,
-  useColorScheme,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
-import { db } from '@/FirebaseConfig';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import LottieView from 'lottie-react-native';
+import { db, auth } from '@/FirebaseConfig';
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  where,
+  getDocs,
+} from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { v4 as uuidv4 } from 'uuid';
 
-export default function Login() {
+export default function AdminCommercialScreen() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
-  const auth = getAuth();
+  const [commercials, setCommercials] = useState<any[]>([]);
+  const [stats, setStats] = useState({
+    totalTransactions: 0,
+    totalClients: 0,
+  });
 
-  // 🌙 Gestion du mode clair/sombre
-  const colorScheme = useColorScheme();
-  const isDarkMode = colorScheme === 'dark';
-  const textColor = isDarkMode ? '#fff' : '#000';
-  const backgroundColor = isDarkMode ? '#121212' : '#fff';
-  const inputBackground = isDarkMode ? '#222' : '#fff';
-  const borderColor = isDarkMode ? '#444' : '#ccc';
-  const placeholderColor = isDarkMode ? '#aaa' : '#666';
+  // 🔁 Écoute temps réel des commerciaux
+  useEffect(() => {
+    const q = query(collection(db, 'Commercial'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, async (snap) => {
+      const list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setCommercials(list);
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      return Alert.alert('Erreur', 'Veuillez entrer votre email et mot de passe');
+      await calculateGlobalStats();
+      await attachCommercialActivity(list);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 📊 Récupération des stats globales (Transactions + Clients)
+  const calculateGlobalStats = async () => {
+    try {
+      const transactionsSnap = await getDocs(collection(db, 'Transactions'));
+      const clientsSnap = await getDocs(collection(db, 'Clients'));
+
+      setStats({
+        totalTransactions: transactionsSnap.size,
+        totalClients: clientsSnap.size,
+      });
+    } catch (err) {
+      console.error('Erreur récupération stats globales:', err);
+    }
+  };
+
+  // 👥 Ajouter les infos (clients + transactions) à chaque commercial
+  const attachCommercialActivity = async (commercialList: any[]) => {
+    try {
+      const updated = await Promise.all(
+        commercialList.map(async (commercial) => {
+          // 🔹 Transactions liées à ce commercial
+          const transQ = query(
+            collection(db, 'Transactions'),
+            where('idCommercial', '==', commercial.idCommercial)
+          );
+          const transSnap = await getDocs(transQ);
+
+          // 🔹 Clients liés à ce commercial
+          const clientQ = query(
+            collection(db, 'Clients'),
+            where('idCommerciale', '==', commercial.idCommercial)
+          );
+          const clientSnap = await getDocs(clientQ);
+
+          return {
+            ...commercial,
+            transactionsCount: transSnap.size,
+            clientsCount: clientSnap.size,
+          };
+        })
+      );
+
+      setCommercials(updated);
+    } catch (error) {
+      console.error('Erreur ajout activité commercial:', error);
+    }
+  };
+
+  // ➕ Créer un nouveau commercial
+  const handleCreateCommercial = async () => {
+    if (!email.trim() || !fullName.trim()) {
+      Alert.alert('Erreur', 'Veuillez remplir le nom complet et l’email');
+      return;
     }
 
     setLoading(true);
     try {
-      // Auth avec Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password.trim());
+      const password = '111111';
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       const uid = userCredential.user.uid;
 
-      // Récupérer le document Commercial par email
-      const q = query(collection(db, 'Commercial'), where('email', '==', email.trim()));
-      const snap = await getDocs(q);
+      const idCommercial = uuidv4();
 
-      if (!snap.empty) {
-        const docSnap = snap.docs[0];
-        const docData = docSnap.data();
+      await addDoc(collection(db, 'Commercial'), {
+        uid,
+        email: email.trim(),
+        fullName: fullName.trim(),
+        idCommercial,
+        createdAt: new Date(),
+      });
 
-        // Récupérer idCommercial depuis le champ du document
-        const idCommercialField = docData.idCommercial ?? null;
-        if (!idCommercialField) {
-          console.warn('Champ idCommercial manquant dans le document Commercial', docSnap.id);
-          await AsyncStorage.setItem(
-            'currentCommercial',
-            JSON.stringify({ idCommercial: null, uid, ...docData })
-          );
-          Alert.alert('Attention', "Le document commercial n'a pas de champ `idCommercial`.");
-        } else {
-          console.log('Commercial connecté :', idCommercialField);
-          await AsyncStorage.setItem(
-            'currentCommercial',
-            JSON.stringify({ idCommercial: idCommercialField, uid, ...docData })
-          );
-
-          // ✅ Navigation vers l'app principale
-          router.replace('(tabs)');
-        }
-      } else {
-        Alert.alert('Erreur', 'Commercial non trouvé dans Firestore');
-      }
-    } catch (e) {
-      console.error(e);
-      const code = e.code || '';
-      if (code === 'auth/wrong-password') {
-        Alert.alert('Erreur', 'Mot de passe incorrect');
-      } else if (code === 'auth/user-not-found') {
-        Alert.alert('Erreur', 'Utilisateur introuvable');
-      } else {
-        Alert.alert('Erreur', 'Impossible de se connecter');
-      }
+      Alert.alert('✅ Succès', `Commercial ${fullName} créé avec succès (mot de passe : "111111")`);
+      setEmail('');
+      setFullName('');
+    } catch (error: any) {
+      console.error('Erreur création commercial :', error);
+      Alert.alert('Erreur', error.message || 'Impossible de créer le commercial');
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading)
-    return (
-      <SafeAreaView
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: 'rgba(0,0,0,0.5)',
-        }}
-      >
-        <View
-          style={{
-            backgroundColor,
-            paddingVertical: 20,
-            borderRadius: 10,
-            justifyContent: 'center',
-            alignItems: 'center',
-            width: 150,
-          }}
-        >
-          <LottieView
-            source={require('../assets/animations/inProgress.json')}
-            autoPlay
-            loop
-            style={{ width: 60, height: 60 }}
-          />
-          <Text style={{ color: textColor }}>Chargement...</Text>
-        </View>
-      </SafeAreaView>
-    );
-
   return (
-    <ImageBackground
-      source={require('../assets/images/loginBg.png')}
-      style={{
-        flex: 1,
-        padding: 16,
-        justifyContent: 'center',
-        backgroundColor,
-      }}
-    >
-      <Text
-        style={{
-          fontSize: 24,
-          fontWeight: 'bold',
-          marginBottom: 50,
-          textAlign: 'center',
-          color: textColor,
-        }}
-      >
-        Login Commercial
-      </Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', padding: 16 }}>
+      <ScrollView>
+        <Text style={{ fontSize: 22, fontWeight: 'bold', marginBottom: 10 }}>Création Commercial</Text>
 
-      <Text style={{ color: textColor }}>Email :</Text>
-      <TextInput
-        value={email}
-        onChangeText={setEmail}
-        style={{
-          borderWidth: 1,
-          borderColor,
-          padding: 8,
-          marginBottom: 16,
-          height: 45,
-          marginTop: 10,
-          backgroundColor: inputBackground,
-          color: textColor,
-          borderRadius: 6,
-        }}
-        placeholder="exemple@gmail.com"
-        placeholderTextColor={placeholderColor}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
+        <Text>Email :</Text>
+        <TextInput
+          value={email}
+          onChangeText={setEmail}
+          placeholder="exemple@gmail.com"
+          style={{
+            borderWidth: 1,
+            borderColor: '#ccc',
+            padding: 8,
+            borderRadius: 6,
+            marginBottom: 10,
+          }}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
 
-      <Text style={{ color: textColor }}>Mot de passe :</Text>
-      <TextInput
-        value={password}
-        onChangeText={setPassword}
-        style={{
-          borderWidth: 1,
-          borderColor,
-          padding: 8,
-          marginBottom: 16,
-          height: 45,
-          marginTop: 10,
-          backgroundColor: inputBackground,
-          color: textColor,
-          borderRadius: 6,
-        }}
-        placeholder="******"
-        placeholderTextColor={placeholderColor}
-        secureTextEntry
-      />
+        <Text>Nom complet :</Text>
+        <TextInput
+          value={fullName}
+          onChangeText={setFullName}
+          placeholder="Jean Du Pont"
+          style={{
+            borderWidth: 1,
+            borderColor: '#ccc',
+            padding: 8,
+            borderRadius: 6,
+            marginBottom: 10,
+          }}
+        />
 
-      <TouchableOpacity
-        onPress={handleLogin}
-        style={{
-          backgroundColor: '#008a5c',
-          padding: 12,
-          alignItems: 'center',
-          marginTop: 40,
-          height: 50,
-          justifyContent: 'center',
-          borderRadius: 8,
-        }}
-      >
-        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>Se connecter</Text>
-      </TouchableOpacity>
-    </ImageBackground>
+        <TouchableOpacity
+          onPress={handleCreateCommercial}
+          style={{
+            backgroundColor: '#008CBA',
+            padding: 12,
+            borderRadius: 8,
+            alignItems: 'center',
+            marginBottom: 20,
+          }}
+          disabled={loading}
+        >
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>
+            {loading ? 'Création...' : 'Créer Commercial'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* 📊 Statistiques globales */}
+        <Text style={{ fontSize: 22, fontWeight: 'bold', marginBottom: 10 }}>Statistiques globales</Text>
+        <View style={{ marginBottom: 20 }}>
+          <Text>Total Transactions : {stats.totalTransactions}</Text>
+          <Text>Total Clients : {stats.totalClients}</Text>
+        </View>
+
+        {/* 👥 Liste des commerciaux */}
+        <Text style={{ fontSize: 22, fontWeight: 'bold', marginBottom: 10 }}>
+          Activités des Commerciaux
+        </Text>
+
+        {commercials.length === 0 ? (
+          <ActivityIndicator size="large" color="#008CBA" />
+        ) : (
+          <FlatList
+            data={commercials}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <View
+                style={{
+                  padding: 12,
+                  borderRadius: 8,
+                  backgroundColor: '#f2f2f2',
+                  marginBottom: 10,
+                }}
+              >
+                <Text style={{ fontWeight: 'bold', fontSize: 16 }}>{item.fullName}</Text>
+                <Text>Email : {item.email}</Text>
+                <Text>ID Commercial : {item.idCommercial}</Text>
+                <Text>👥 Clients : {item.clientsCount ?? 0}</Text>
+                <Text>💰 Transactions : {item.transactionsCount ?? 0}</Text>
+              </View>
+            )}
+          />
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
