@@ -21,7 +21,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { v4 as uuidv4 } from 'uuid';
+
 
 export default function AdminCommercialScreen() {
   const [email, setEmail] = useState('');
@@ -108,7 +108,8 @@ export default function AdminCommercialScreen() {
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       const uid = userCredential.user.uid;
 
-      const idCommercial = uuidv4();
+      const idCommercial = 'COMM-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+
 
       await addDoc(collection(db, 'Commercial'), {
         uid,
