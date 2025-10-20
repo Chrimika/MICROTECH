@@ -94,7 +94,7 @@ export default function ClientProfileScreen() {
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem('client');
-    router.replace('/login');
+    router.replace('/Login');
   };
 
   if (loading)

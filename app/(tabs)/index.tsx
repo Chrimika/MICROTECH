@@ -1,5 +1,6 @@
 import { db } from '@/FirebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router'; // ✅ Import du router
 import {
   addDoc,
   collection,
@@ -34,12 +35,27 @@ export default function HomeScreen() {
   const backgroundColor = isDarkMode ? '#121212' : '#fff';
   const inputBg = isDarkMode ? '#1e1e1e' : '#f2f2f2';
   const borderColor = isDarkMode ? '#333' : '#ccc';
+  const router = useRouter(); // ✅ initialisation du router
 
   // 🔹 Charger le client connecté
   useEffect(() => {
     const loadClient = async () => {
-      const json = await AsyncStorage.getItem('currentClient');
-      if (json) setClient(JSON.parse(json));
+      try {
+        const json = await AsyncStorage.getItem('currentClient');
+        if (json) {
+          const parsed = JSON.parse(json);
+          if (parsed && parsed.idClient) {
+            setClient(parsed);
+          } else {
+            router.replace('/Login'); // 👈 Redirige si invalide
+          }
+        } else {
+          router.replace('/Login'); // 👈 Redirige si vide
+        }
+      } catch (err) {
+        console.error('Erreur chargement client :', err);
+        router.replace('/Login'); // 👈 En cas d’erreur de lecture
+      }
     };
     loadClient();
   }, []);

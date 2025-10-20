@@ -1,20 +1,20 @@
+import { db } from '@/FirebaseConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import LottieView from 'lottie-react-native';
 import React, { useState } from 'react';
 import {
+  Alert,
+  ImageBackground,
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
-  ImageBackground,
   View,
   useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
-import { db } from '@/FirebaseConfig';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import LottieView from 'lottie-react-native';
 
 export default function Login() {
   const [email, setEmail] = useState('');
