@@ -28,8 +28,8 @@ export default function Login() {
   const isDarkMode = colorScheme === 'dark';
   const textColor = isDarkMode ? '#fff' : '#000';
   const backgroundColor = isDarkMode ? '#121212' : '#fff';
-  const inputBackground = isDarkMode ? '#222' : '#fff';
-  const borderColor = isDarkMode ? '#444' : '#ccc';
+  const inputBackground = isDarkMode ? '#222' : '#f5f5f5';
+  const borderColor = isDarkMode ? '#444' : 'transparent';
   const placeholderColor = isDarkMode ? '#aaa' : '#666';
 
   const handleLogin = async () => {
@@ -150,11 +150,11 @@ export default function Login() {
           borderColor,
           padding: 8,
           marginBottom: 16,
-          height: 45,
+          height: 55,
           marginTop: 10,
           backgroundColor: inputBackground,
           color: textColor,
-          borderRadius: 6,
+          
         }}
         placeholder="exemple@gmail.com"
         placeholderTextColor={placeholderColor}
@@ -171,11 +171,11 @@ export default function Login() {
           borderColor,
           padding: 8,
           marginBottom: 16,
-          height: 45,
+          height: 55,
           marginTop: 10,
           backgroundColor: inputBackground,
           color: textColor,
-          borderRadius: 6,
+          
         }}
         placeholder="******"
         placeholderTextColor={placeholderColor}
@@ -191,10 +191,10 @@ export default function Login() {
           marginTop: 40,
           height: 50,
           justifyContent: 'center',
-          borderRadius: 8,
+          
         }}
       >
-        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>Se connecter</Text>
+        <Text style={{ color: '#fff',  fontSize: 18 }}>Se connecter</Text>
       </TouchableOpacity>
     </ImageBackground>
   );

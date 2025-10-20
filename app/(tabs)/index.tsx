@@ -311,7 +311,7 @@ export default function HomeScreen() {
           style={{
             backgroundColor: Colors[colorScheme ?? 'light'].tint,
             padding: 15,
-            borderRadius: 10,
+            
             alignItems: 'center',
             marginTop: 'auto',
           }}
