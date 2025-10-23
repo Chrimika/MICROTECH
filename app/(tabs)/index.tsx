@@ -1,11 +1,12 @@
 import { db } from '@/FirebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router'; // ✅ Import du router
+import { useRouter } from 'expo-router';
 import {
   addDoc,
   collection,
   doc,
   getDocs,
+  onSnapshot,
   query,
   Timestamp,
   updateDoc,
@@ -23,6 +24,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function HomeScreen() {
   const [client, setClient] = useState<any>(null);
@@ -32,12 +34,12 @@ export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const textColor = isDarkMode ? '#fff' : '#000';
-  const backgroundColor = isDarkMode ? '#121212' : '#fff';
-  const inputBg = isDarkMode ? '#1e1e1e' : '#f2f2f2';
-  const borderColor = isDarkMode ? '#333' : '#ccc';
-  const router = useRouter(); // ✅ initialisation du router
+  const backgroundColor = isDarkMode ? '#121212' : '#f5f5f5';
+  const cardBg = isDarkMode ? '#1e1e1e' : '#fff';
+  const inputBg = isDarkMode ? '#2a2a2a' : '#f9f9f9';
+  const borderColor = isDarkMode ? '#333' : '#e0e0e0';
+  const router = useRouter();
 
-  // 🔹 Charger le client connecté
   useEffect(() => {
     const loadClient = async () => {
       try {
@@ -47,18 +49,45 @@ export default function HomeScreen() {
           if (parsed && parsed.idClient) {
             setClient(parsed);
           } else {
-            router.replace('/Login'); // 👈 Redirige si invalide
+            router.replace('/Login');
           }
         } else {
-          router.replace('/Login'); // 👈 Redirige si vide
+          router.replace('/Login');
         }
       } catch (err) {
         console.error('Erreur chargement client :', err);
-        router.replace('/Login'); // 👈 En cas d’erreur de lecture
+        router.replace('/Login');
       }
     };
     loadClient();
   }, []);
+  
+  useEffect(() => {
+    if (!client?.idClient) return;
+    const q = query(collection(db, 'Clients'), where('idClient', '==', client.idClient));
+    const unsubscribe = onSnapshot(
+      q,
+      async (snap) => {
+        if (!snap.empty) {
+          const docSnap = snap.docs[0];
+          const data = { ...docSnap.data(), _docId: docSnap.id };
+          setClient((prev) => ({ ...prev, ...data }));
+          try {
+            await AsyncStorage.setItem('currentClient', JSON.stringify({ ...client, ...data }));
+          } catch (e) {
+            console.error('Erreur mise à jour AsyncStorage depuis onSnapshot:', e);
+          }
+        } else {
+          router.replace('/Login');
+        }
+      },
+      (error) => {
+        console.error('onSnapshot error:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [client?.idClient]);
 
   const handleWithdraw = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
@@ -72,18 +101,16 @@ export default function HomeScreen() {
     try {
       const newBalance = client.balance - Number(amount);
 
-      // ✅ Créer la transaction dans Firestore
       await addDoc(collection(db, 'Transactions'), {
         idClient: client.idClient,
         idCommercial: client.idCommerciale,
         means,
         amount: Number(amount),
-        status: 'pending', // 👈 en attente de validation
+        status: 'pending',
         transactionTime: Timestamp.now(),
         type: 'withdraw',
       });
 
-      // ✅ Mettre à jour le solde du client dans Firestore
       const q = query(collection(db, 'Clients'), where('idClient', '==', client.idClient));
       const snap = await getDocs(q);
       if (!snap.empty) {
@@ -91,7 +118,6 @@ export default function HomeScreen() {
         await updateDoc(docRef, { balance: newBalance });
       }
 
-      // ✅ Mettre à jour en local aussi
       const updatedClient = { ...client, balance: newBalance };
       await AsyncStorage.setItem('currentClient', JSON.stringify(updatedClient));
       setClient(updatedClient);
@@ -106,6 +132,15 @@ export default function HomeScreen() {
     }
   };
 
+  const getMeansIcon = (m: string) => {
+    switch (m) {
+      case 'cash': return 'cash-outline';
+      case 'om': return 'phone-portrait-outline';
+      case 'momo': return 'phone-portrait-outline';
+      default: return 'cash-outline';
+    }
+  };
+
   if (!client)
     return (
       <SafeAreaView
@@ -117,7 +152,9 @@ export default function HomeScreen() {
         }}
       >
         <ActivityIndicator size="large" color="#008a5c" />
-        <Text style={{ color: textColor, marginTop: 10 }}>Chargement du compte...</Text>
+        <Text style={{ color: textColor, marginTop: 10, fontSize: 16 }}>
+          Chargement...
+        </Text>
       </SafeAreaView>
     );
 
@@ -126,117 +163,198 @@ export default function HomeScreen() {
       style={{
         flex: 1,
         backgroundColor,
-        paddingHorizontal: 20,
-        paddingTop: 30,
       }}
     >
       {/* Header */}
-      <Text
-        style={{
-          fontSize: 24,
-          fontWeight: 'bold',
-          color: textColor,
-          textAlign: 'center',
-        }}
-      >
-        Bonjour, {client.fullName.split(' ')[0]} 👋
-      </Text>
-
-      {/* Solde */}
-      <View
-        style={{
-          marginTop: 40,
-          backgroundColor: isDarkMode ? '#1e1e1e' : '#e6fff4',
-          borderRadius: 12,
-          padding: 20,
-          alignItems: 'center',
-        }}
-      >
-        <Text style={{ color: '#008a5c', fontSize: 16 }}>Solde disponible</Text>
+      <View style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20 }}>
+        <Text style={{ fontSize: 16, color: isDarkMode ? '#999' : '#666' }}>
+          Bienvenue
+        </Text>
         <Text
           style={{
+            fontSize: 28,
+            fontWeight: '700',
             color: textColor,
-            fontSize: 36,
-            fontWeight: 'bold',
-            marginTop: 10,
+            marginTop: 4,
           }}
         >
-          {client.balance.toLocaleString()} XAF
+          {client.fullName.split(' ')[0]} 👋
         </Text>
       </View>
 
-      {/* Saisie du montant */}
-      <Text style={{ marginTop: 40, color: textColor, fontSize: 16 }}>Montant du retrait</Text>
-      <TextInput
-        placeholder="Ex: 5000"
-        keyboardType="numeric"
-        value={amount}
-        onChangeText={setAmount}
-        style={{
-          borderWidth: 1,
-          borderColor,
-          borderRadius: 8,
-          padding: 10,
-          marginTop: 10,
-          backgroundColor: inputBg,
-          color: textColor,
-        }}
-        placeholderTextColor={isDarkMode ? '#999' : '#666'}
-      />
-
-      {/* Choix du moyen */}
-      <Text style={{ marginTop: 20, color: textColor, fontSize: 16 }}>Moyen de retrait</Text>
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          marginTop: 10,
-        }}
-      >
-        {['cash', 'om', 'momo'].map((m) => (
-          <TouchableOpacity
-            key={m}
-            onPress={() => setMeans(m as any)}
+      {/* Balance Card */}
+      <View style={{ paddingHorizontal: 20, marginBottom: 30 }}>
+        <View
+          style={{
+            backgroundColor: '#008a5c',
+            borderRadius: 16,
+            padding: 24,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.1,
+            shadowRadius: 12,
+            elevation: 5,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <Ionicons name="wallet-outline" size={22} color="#fff" />
+            <Text style={{ color: '#e6fff4', fontSize: 15, marginLeft: 8 }}>
+              Solde disponible
+            </Text>
+          </View>
+          <Text
             style={{
-              width: '30%',
-              padding: 10,
-              alignItems: 'center',
-              borderWidth: 1,
-              borderColor: means === m ? '#008a5c' : borderColor,
-              backgroundColor: means === m ? '#008a5c' : 'transparent',
-              
+              color: '#fff',
+              fontSize: 40,
+              fontWeight: '700',
+              letterSpacing: -1,
             }}
           >
-            <Text style={{ color: means === m ? '#fff' : textColor, textTransform: 'capitalize' }}>
-              {m}
-            </Text>
-          </TouchableOpacity>
-        ))}
+            {client.balance.toLocaleString()} XAF
+          </Text>
+        </View>
       </View>
 
-      {/* Bouton retrait */}
-      <TouchableOpacity
-        onPress={handleWithdraw}
-        disabled={loading}
-        style={{
-          backgroundColor: '#008a5c',
-          padding: 15,
-          
-          alignItems: 'center',
-          marginTop: 'auto'
-        }}
-      >
-        {loading ? (
-          <LottieView
-            source={require('../../assets/animations/inProgress.json')}
-            autoPlay
-            loop
-            style={{ width: 50, height: 50 }}
-          />
-        ) : (
-          <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>Demander un retrait</Text>
-        )}
-      </TouchableOpacity>
+      {/* Withdrawal Form */}
+      <View style={{ 
+        flex: 1,
+        backgroundColor: cardBg, 
+        borderTopLeftRadius: 30,
+        borderTopRightRadius: 30,
+        paddingHorizontal: 20,
+        paddingTop: 30,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 3,
+      }}>
+        {/* Amount Input */}
+        <View style={{ marginBottom: 24 }}>
+          <Text style={{ 
+            color: textColor, 
+            fontSize: 15, 
+            fontWeight: '600',
+            marginBottom: 10 
+          }}>
+            Montant du retrait
+          </Text>
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            borderWidth: 1.5,
+            borderColor: borderColor,
+            borderRadius: 12,
+            backgroundColor: inputBg,
+            paddingHorizontal: 16,
+          }}>
+            <Ionicons name="card-outline" size={20} color={isDarkMode ? '#999' : '#666'} />
+            <TextInput
+              placeholder="5000"
+              keyboardType="numeric"
+              value={amount}
+              onChangeText={setAmount}
+              style={{
+                flex: 1,
+                padding: 14,
+                fontSize: 17,
+                color: textColor,
+              }}
+              placeholderTextColor={isDarkMode ? '#666' : '#999'}
+            />
+            <Text style={{ color: isDarkMode ? '#999' : '#666', fontSize: 15 }}>XAF</Text>
+          </View>
+        </View>
+
+        {/* Payment Methods */}
+        <View style={{ marginBottom: 30 }}>
+          <Text style={{ 
+            color: textColor, 
+            fontSize: 15, 
+            fontWeight: '600',
+            marginBottom: 10 
+          }}>
+            Moyen de retrait
+          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              gap: 12,
+            }}
+          >
+            {(['cash', 'om', 'momo'] as const).map((m) => (
+              <TouchableOpacity
+                key={m}
+                onPress={() => setMeans(m)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 16,
+                  alignItems: 'center',
+                  borderRadius: 12,
+                  borderWidth: 2,
+                  borderColor: means === m ? '#008a5c' : borderColor,
+                  backgroundColor: means === m ? '#e6fff4' : inputBg,
+                }}
+              >
+                <Ionicons 
+                  name={getMeansIcon(m) as any} 
+                  size={24} 
+                  color={means === m ? '#008a5c' : (isDarkMode ? '#999' : '#666')} 
+                />
+                <Text style={{ 
+                  color: means === m ? '#008a5c' : textColor, 
+                  textTransform: 'uppercase',
+                  fontSize: 13,
+                  fontWeight: '600',
+                  marginTop: 6,
+                }}>
+                  {m}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Withdraw Button */}
+        <TouchableOpacity
+          onPress={handleWithdraw}
+          disabled={loading}
+          style={{
+            backgroundColor: loading ? '#ccc' : '#008a5c',
+            paddingVertical: 16,
+            borderRadius: 12,
+            alignItems: 'center',
+            marginTop: 'auto',
+            marginBottom: 20,
+            shadowColor: '#008a5c',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: loading ? 0 : 0.3,
+            shadowRadius: 8,
+            elevation: loading ? 0 : 5,
+          }}
+        >
+          {loading ? (
+            <LottieView
+              source={require('../../assets/animations/inProgress.json')}
+              autoPlay
+              loop
+              style={{ width: 50, height: 50 }}
+            />
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="arrow-down-circle-outline" size={22} color="#fff" />
+              <Text style={{ 
+                color: '#fff', 
+                fontSize: 17, 
+                fontWeight: '700',
+                marginLeft: 8,
+              }}>
+                Demander un retrait
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
