@@ -7,6 +7,8 @@ import {
   ScrollView,
   Alert,
   StyleSheet,
+  useColorScheme,
+  ActivityIndicator,
 } from 'react-native';
 import { Colors } from '@/constants/theme';
 import { db } from '@/FirebaseConfig';
@@ -26,10 +28,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import LottieView from 'lottie-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function TabThreeScreen() {
+  const colorScheme = useColorScheme();
   const [idCommercial, setIdCommercial] = useState('');
   const [user, setUser] = useState<any>(null);
   const [userDocId, setUserDocId] = useState<string | null>(null);
@@ -38,23 +40,28 @@ export default function TabThreeScreen() {
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // --- 🔹 Récupérer l'utilisateur stocké localement
+  const isDark = colorScheme === 'dark';
+  const backgroundColor = isDark ? '#121212' : '#f5f5f5';
+  const textColor = isDark ? '#fff' : '#000';
+  const cardBg = isDark ? '#1e1e1e' : '#fff';
+  const borderColor = isDark ? '#333' : '#e0e0e0';
+  const labelColor = isDark ? '#999' : '#666';
+  const inputBg = isDark ? '#2a2a2a' : '#f9f9f9';
+
   useEffect(() => {
     const fetchCurrentCommercial = async () => {
       try {
         const json = await AsyncStorage.getItem('currentCommercial');
         if (json) {
           const commercial = JSON.parse(json);
-          console.log('🧠 Commercial local récupéré:', commercial);
           if (commercial.idCommercial) {
             setIdCommercial(commercial.idCommercial);
           } else {
-            console.log('⚠️ idCommercial manquant dans AsyncStorage');
             setLoading(false);
           }
         } else {
-          console.log('⚠️ Aucun commercial trouvé dans AsyncStorage');
           setLoading(false);
         }
       } catch (error) {
@@ -65,11 +72,9 @@ export default function TabThreeScreen() {
     fetchCurrentCommercial();
   }, []);
 
-  // --- 🔹 Récupérer données Firestore quand idCommercial est dispo
   useEffect(() => {
     if (!idCommercial) return;
 
-    console.log('🔍 Chargement des données Firestore pour idCommercial:', idCommercial);
     setLoading(true);
 
     let unsubUser: (() => void) | null = null;
@@ -82,7 +87,6 @@ export default function TabThreeScreen() {
         const snap = await getDocs(q);
 
         if (snap.empty) {
-          console.log('❌ Aucun commercial trouvé pour cet ID');
           Alert.alert('Erreur', 'Commercial introuvable.');
           setLoading(false);
           return;
@@ -93,7 +97,6 @@ export default function TabThreeScreen() {
 
         unsubUser = onSnapshot(docRef, (d) => {
           if (d.exists()) {
-            console.log('👤 Données commercial:', d.data());
             setUser({ id: d.id, ...d.data() });
           }
         });
@@ -102,14 +105,12 @@ export default function TabThreeScreen() {
         unsubClients = onSnapshot(clientsQ, (snap) => {
           const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
           setClients(arr);
-          console.log('📦 Clients récupérés:', arr.length);
         });
 
         const transQ = query(collection(db, 'Transactions'), where('idCommercial', '==', idCommercial));
         unsubTrans = onSnapshot(transQ, (snap) => {
           const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
           setTransactions(arr);
-          console.log('💰 Transactions récupérées:', arr.length);
           setLoading(false);
         });
       } catch (e) {
@@ -128,10 +129,10 @@ export default function TabThreeScreen() {
     };
   }, [idCommercial]);
 
-  // --- 🔹 Mise à jour profil
   const handleUpdate = async () => {
     if (!userDocId) return Alert.alert('Erreur', 'Document introuvable');
     try {
+      setSaving(true);
       const ref = doc(db, 'Commercial', userDocId);
       await updateDoc(ref, {
         fullName: user.fullName,
@@ -139,14 +140,14 @@ export default function TabThreeScreen() {
       });
       setEditing(false);
       Alert.alert('Succès', 'Profil mis à jour');
-      console.log('✅ Profil mis à jour:', user.fullName, user.phone);
     } catch (e) {
       console.error('Erreur mise à jour:', e);
       Alert.alert('Erreur', 'Échec de mise à jour');
+    } finally {
+      setSaving(false);
     }
   };
 
-  // --- 🔹 Génération du rapport moderne
   const generateReport = async (forDate: Date) => {
     try {
       const dateStr = format(forDate, 'dd MMMM yyyy', { locale: fr });
@@ -244,126 +245,182 @@ Généré le ${format(new Date(), "dd MMMM yyyy 'à' HH:mm", { locale: fr })}
       const fileUri = `${FileSystem.documentDirectory}rapport_${format(forDate, 'dd_MM_yyyy')}.txt`;
       await FileSystem.writeAsStringAsync(fileUri, report, { encoding: FileSystem.EncodingType.UTF8 });
       await Sharing.shareAsync(fileUri);
-      console.log('📤 Rapport généré et partagé:', fileUri);
     } catch (error) {
       console.error('Erreur rapport:', error);
       Alert.alert('Erreur', 'Impossible de générer le rapport');
     }
   };
 
-  // --- 🔹 Loading
   if (loading || !user) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>  
-        <View style={styles.loadingBox}>
-          <LottieView
-            source={require('../../assets/animations/inProgress.json')}
-            autoPlay
-            loop
-            style={styles.lottie}
-          />
-          <Text style={styles.loadingText}>Chargement...</Text>
+      <SafeAreaView style={[styles.container, { backgroundColor }]}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#008a5c" />
+          <Text style={{ color: textColor, marginTop: 10, fontSize: 16 }}>
+            Chargement...
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // --- 🔹 UI principale
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        
-        {/* Header avec gradient */}
-        <LinearGradient
-          colors={['#10b981', '#059669']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.header}
-        >
+    <SafeAreaView style={[styles.container, { backgroundColor }]}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Header Profile */}
+        <View style={[styles.header, { backgroundColor: cardBg }]}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user.fullName?.charAt(0)?.toUpperCase() || '?'}
-              </Text>
+              <Ionicons name="person" size={40} color="#fff" />
             </View>
           </View>
-          <Text style={styles.headerTitle}>{user.fullName}</Text>
-          <Text style={styles.headerSubtitle}>Commercial</Text>
-        </LinearGradient>
+          <Text style={[styles.headerTitle, { color: textColor }]}>{user.fullName}</Text>
+          <Text style={[styles.headerSubtitle, { color: labelColor }]}>
+            Commercial • {user.idCommercial}
+          </Text>
+        </View>
 
-        {/* Card Informations */}
-        <View style={styles.card}>
+        {/* Personal Info Card */}
+        <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Informations personnelles</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="person-outline" size={20} color="#008a5c" />
+              <Text style={[styles.cardTitle, { color: textColor }]}>
+                Informations personnelles
+              </Text>
+            </View>
             {!editing && (
               <TouchableOpacity onPress={() => setEditing(true)}>
-                <Text style={styles.editButton}>✏️ Modifier</Text>
+                <Ionicons name="create-outline" size={20} color="#008a5c" />
               </TouchableOpacity>
             )}
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Nom complet</Text>
-            <TextInput
-              value={user.fullName}
-              editable={editing}
-              onChangeText={(v) => setUser({ ...user, fullName: v })}
-              style={[styles.input, editing && styles.inputEditing]}
-              placeholderTextColor="#999"
-            />
+            <Text style={[styles.label, { color: labelColor }]}>Nom complet</Text>
+            <View style={[
+              styles.inputContainer,
+              { 
+                borderColor: editing ? '#008a5c' : borderColor,
+                backgroundColor: editing ? inputBg : (isDark ? '#252525' : '#f5f5f5')
+              }
+            ]}>
+              <Ionicons name="person-circle-outline" size={18} color={labelColor} />
+              <TextInput
+                value={user.fullName}
+                editable={editing}
+                onChangeText={(v) => setUser({ ...user, fullName: v })}
+                style={[styles.input, { color: textColor }]}
+                placeholderTextColor={isDark ? '#666' : '#999'}
+              />
+            </View>
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Téléphone</Text>
-            <TextInput
-              value={user.phone}
-              editable={editing}
-              onChangeText={(v) => setUser({ ...user, phone: v })}
-              style={[styles.input, editing && styles.inputEditing]}
-              placeholderTextColor="#999"
-              keyboardType="phone-pad"
-            />
+            <Text style={[styles.label, { color: labelColor }]}>Téléphone</Text>
+            <View style={[
+              styles.inputContainer,
+              { 
+                borderColor: editing ? '#008a5c' : borderColor,
+                backgroundColor: editing ? inputBg : (isDark ? '#252525' : '#f5f5f5')
+              }
+            ]}>
+              <Ionicons name="call-outline" size={18} color={labelColor} />
+              <TextInput
+                value={user.phone}
+                editable={editing}
+                onChangeText={(v) => setUser({ ...user, phone: v })}
+                style={[styles.input, { color: textColor }]}
+                placeholderTextColor={isDark ? '#666' : '#999'}
+                keyboardType="phone-pad"
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: labelColor }]}>Email</Text>
+            <View style={[
+              styles.inputContainer,
+              { 
+                borderColor: borderColor,
+                backgroundColor: isDark ? '#252525' : '#f5f5f5',
+                opacity: 0.6
+              }
+            ]}>
+              <Ionicons name="mail-outline" size={18} color={labelColor} />
+              <TextInput
+                value={user.email}
+                editable={false}
+                style={[styles.input, { color: textColor }]}
+              />
+            </View>
           </View>
 
           {editing && (
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 onPress={() => setEditing(false)}
-                style={[styles.button, styles.buttonSecondary]}
+                style={[styles.button, styles.buttonSecondary, { backgroundColor: isDark ? '#2a2a2a' : '#f5f5f5', borderColor }]}
               >
-                <Text style={styles.buttonSecondaryText}>Annuler</Text>
+                <Text style={[styles.buttonSecondaryText, { color: textColor }]}>
+                  Annuler
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleUpdate}
+                disabled={saving}
                 style={[styles.button, styles.buttonPrimary]}
               >
-                <Text style={styles.buttonPrimaryText}>✓ Enregistrer</Text>
+                {saving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                    <Text style={styles.buttonPrimaryText}>Enregistrer</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           )}
         </View>
 
-        {/* Card Stats */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Statistiques</Text>
+        {/* Stats Card */}
+        <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <Ionicons name="stats-chart" size={20} color="#008a5c" />
+            <Text style={[styles.cardTitle, { color: textColor }]}>Statistiques</Text>
+          </View>
           <View style={styles.statsRow}>
             <View style={styles.statBox}>
+              <View style={styles.statIconContainer}>
+                <Ionicons name="people" size={24} color="#008a5c" />
+              </View>
               <Text style={styles.statNumber}>{clients.length}</Text>
-              <Text style={styles.statLabel}>Clients</Text>
+              <Text style={[styles.statLabel, { color: labelColor }]}>Clients</Text>
             </View>
-            <View style={styles.statDivider} />
+            <View style={[styles.statDivider, { backgroundColor: borderColor }]} />
             <View style={styles.statBox}>
-              <Text style={styles.statNumber}>{transactions.length}</Text>
-              <Text style={styles.statLabel}>Transactions</Text>
+              <View style={styles.statIconContainer}>
+                <Ionicons name="repeat" size={24} color="#2E7D32" />
+              </View>
+              <Text style={[styles.statNumber, { color: '#2E7D32' }]}>
+                {transactions.length}
+              </Text>
+              <Text style={[styles.statLabel, { color: labelColor }]}>Transactions</Text>
             </View>
           </View>
         </View>
 
-        {/* Card Rapports */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>📊 Exporter mon activité</Text>
-          <Text style={styles.cardDescription}>
+        {/* Reports Card */}
+        <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            <Ionicons name="document-text" size={20} color="#008a5c" />
+            <Text style={[styles.cardTitle, { color: textColor }]}>
+              Rapports d'activité
+            </Text>
+          </View>
+          <Text style={[styles.cardDescription, { color: labelColor }]}>
             Générez un rapport détaillé de votre activité commerciale
           </Text>
 
@@ -371,26 +428,34 @@ Généré le ${format(new Date(), "dd MMMM yyyy 'à' HH:mm", { locale: fr })}
             onPress={() => generateReport(new Date())}
             style={styles.reportButton}
           >
-            <Text style={styles.reportButtonIcon}>📄</Text>
+            <View style={styles.reportButtonIconContainer}>
+              <Ionicons name="today" size={24} color="#fff" />
+            </View>
             <View style={styles.reportButtonContent}>
               <Text style={styles.reportButtonTitle}>Rapport du jour</Text>
               <Text style={styles.reportButtonSubtitle}>
                 Exportez l'activité d'aujourd'hui
               </Text>
             </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={() => setDatePickerVisible(true)}
-            style={[styles.reportButton, styles.reportButtonSecondary]}
+            style={[styles.reportButton, styles.reportButtonSecondary, { borderColor }]}
           >
-            <Text style={styles.reportButtonIcon}>📅</Text>
+            <View style={[styles.reportButtonIconContainer, { backgroundColor: '#e6fff4' }]}>
+              <Ionicons name="calendar" size={24} color="#008a5c" />
+            </View>
             <View style={styles.reportButtonContent}>
-              <Text style={styles.reportButtonTitleSecondary}>Jour spécifique</Text>
-              <Text style={styles.reportButtonSubtitleSecondary}>
+              <Text style={[styles.reportButtonTitleSecondary, { color: textColor }]}>
+                Jour spécifique
+              </Text>
+              <Text style={[styles.reportButtonSubtitleSecondary, { color: labelColor }]}>
                 Choisissez une date personnalisée
               </Text>
             </View>
+            <Ionicons name="chevron-forward" size={20} color={labelColor} />
           </TouchableOpacity>
 
           <DateTimePickerModal
@@ -414,136 +479,86 @@ Généré le ${format(new Date(), "dd MMMM yyyy 'à' HH:mm", { locale: fr })}
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  scrollContent: {
-    paddingBottom: 20,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  loadingBox: {
-    backgroundColor: '#fff',
-    paddingVertical: 30,
-    paddingHorizontal: 40,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  lottie: {
-    width: 80,
-    height: 80,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#64748b',
-    fontWeight: '500',
   },
   header: {
-    paddingTop: 40,
+    paddingTop: 20,
     paddingBottom: 30,
     paddingHorizontal: 20,
     alignItems: 'center',
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
     marginBottom: 20,
   },
   avatarContainer: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   avatar: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: '#008a5c',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#fff',
-  },
-  avatarText: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#fff',
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontWeight: '700',
     marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
     fontWeight: '500',
   },
   card: {
-    backgroundColor: '#fff',
     marginHorizontal: 16,
     marginBottom: 16,
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 2,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1e293b',
-    marginBottom: 8,
+    fontSize: 17,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   cardDescription: {
     fontSize: 14,
-    color: '#64748b',
-    marginBottom: 20,
+    marginBottom: 16,
     lineHeight: 20,
-  },
-  editButton: {
-    fontSize: 14,
-    color: '#10b981',
-    fontWeight: '600',
   },
   inputGroup: {
     marginBottom: 16,
   },
   label: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#64748b',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingHorizontal: 12,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    color: '#1e293b',
-    backgroundColor: '#f8fafc',
-  },
-  inputEditing: {
-    borderColor: '#10b981',
-    backgroundColor: '#fff',
+    flex: 1,
+    padding: 12,
+    fontSize: 15,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -553,73 +568,84 @@ const styles = StyleSheet.create({
   button: {
     flex: 1,
     padding: 14,
-    borderRadius: 12,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   buttonPrimary: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#008a5c',
   },
   buttonSecondary: {
-    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
   },
   buttonPrimaryText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
   buttonSecondaryText: {
-    color: '#64748b',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
   },
   statBox: {
     flex: 1,
     alignItems: 'center',
   },
+  statIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e6fff4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   statDivider: {
     width: 1,
-    height: 50,
-    backgroundColor: '#e2e8f0',
+    height: 80,
   },
   statNumber: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#10b981',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#008a5c',
     marginBottom: 4,
   },
   statLabel: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: 13,
     fontWeight: '500',
   },
   reportButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#10b981',
-    padding: 16,
+    backgroundColor: '#008a5c',
+    padding: 14,
     borderRadius: 12,
     marginBottom: 12,
   },
   reportButtonSecondary: {
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     borderWidth: 2,
-    borderColor: '#10b981',
   },
-  reportButtonIcon: {
-    fontSize: 32,
-    marginRight: 16,
+  reportButtonIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   reportButtonContent: {
     flex: 1,
   },
   reportButtonTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#fff',
     marginBottom: 2,
@@ -629,14 +655,12 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
   },
   reportButtonTitleSecondary: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#10b981',
     marginBottom: 2,
   },
   reportButtonSubtitleSecondary: {
     fontSize: 13,
-    color: '#64748b',
   },
   bottomSpacer: {
     height: 20,
